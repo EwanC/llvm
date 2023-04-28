@@ -2,22 +2,19 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-/** Tests recording and submission of a graph containing usm memcpy commands.
+/** Tests basic adding of nodes and submission of a graph using USM pointers for
+ * inputs and outputs.
  */
 
 #include "graph_common.hpp"
 
 using namespace sycl;
 
-class kernel_mod_a;
-class kernel_mod_b;
-
 int main() {
   queue testQueue;
 
   using T = int;
 
-  const T modValue = 7;
   std::vector<T> dataA(size), dataB(size), dataC(size);
 
   // Initialize the data
@@ -27,21 +24,13 @@ int main() {
 
   // Create reference data for output
   std::vector<T> referenceA(dataA), referenceB(dataB), referenceC(dataC);
-  for (size_t i = 0; i < iterations; i++) {
-    for (size_t j = 0; j < size; j++) {
-      referenceA[j] = referenceB[j];
-      referenceA[j] += modValue;
-      referenceB[j] = referenceA[j];
-      referenceB[j] += modValue;
-      referenceC[j] = referenceB[j];
-    }
-  }
-
-  ext::oneapi::experimental::command_graph<
-      ext::oneapi::experimental::graph_state::modifiable>
-      graph{testQueue.get_context(), testQueue.get_device()};
+  calculate_reference_data(iterations, size, referenceA, referenceB,
+                           referenceC);
 
   {
+    ext::oneapi::experimental::command_graph<
+        ext::oneapi::experimental::graph_state::modifiable>
+        graph{testQueue.get_context(), testQueue.get_device()};
     auto ptrA = malloc_device<T>(dataA.size(), testQueue);
     testQueue.memcpy(ptrA, dataA.data(), dataA.size() * sizeof(T)).wait();
     auto ptrB = malloc_device<T>(dataB.size(), testQueue);
@@ -49,42 +38,17 @@ int main() {
     auto ptrC = malloc_device<T>(dataC.size(), testQueue);
     testQueue.memcpy(ptrC, dataC.data(), dataC.size() * sizeof(T)).wait();
 
-    graph.begin_recording(testQueue);
-
     // Record commands to graph
-    // memcpy from B to A
-    testQueue.copy(ptrB, ptrA, size);
-    // Read & write A
-    testQueue.submit([&](handler &cgh) {
-      cgh.parallel_for<kernel_mod_a>(range<1>(size), [=](item<1> id) {
-        auto linID = id.get_linear_id();
-        ptrA[linID] += modValue;
-      });
-    });
+    add_kernels_usm(graph, size, ptrA, ptrB, ptrC);
 
-    // memcpy from A to B
-    testQueue.copy(ptrA, ptrB, size);
-
-    // Read and write B
-    testQueue.submit([&](handler &cgh) {
-      cgh.parallel_for<kernel_mod_b>(range<1>(size), [=](item<1> id) {
-        auto linID = id.get_linear_id();
-        ptrB[linID] += modValue;
-      });
-    });
-
-    // memcpy from B to C
-    testQueue.copy(ptrB, ptrC, size);
-
-    graph.end_recording();
     auto graphExec = graph.finalize();
 
-    // Execute graph over n iterations
+    // Execute several iterations of the graph
     for (unsigned n = 0; n < iterations; n++) {
       testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
     }
     // Perform a wait on all graph submissions.
-    testQueue.wait();
+    testQueue.wait_and_throw();
 
     testQueue.memcpy(dataA.data(), ptrA, dataA.size() * sizeof(T)).wait();
     testQueue.memcpy(dataB.data(), ptrB, dataB.size() * sizeof(T)).wait();

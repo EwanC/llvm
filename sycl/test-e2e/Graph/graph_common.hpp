@@ -23,11 +23,9 @@ class subtract_kernel_usm;
 class decrement_kernel_usm;
 
 using namespace sycl;
+using namespace ext::oneapi::experimental;
 
-/** Runs a series of kernels based on the examples from the initial Graphs
- * sample code repo.
- *
- */
+// Runs a series of 4 kernels with a diamond dependency pattern
 template <typename T>
 void run_kernels(sycl::queue q, const size_t size, buffer<T> dataA,
                  buffer<T> dataB, buffer<T> dataC) {
@@ -67,10 +65,47 @@ void run_kernels(sycl::queue q, const size_t size, buffer<T> dataA,
   });
 }
 
-/** Runs a series of kernels based on the examples from the initial Graphs
- * sample code repo.
- *
- */
+// Adds a series of 4 kernels with a diamond dependency pattern
+template <typename T>
+void add_kernels(command_graph<graph_state::modifiable> g, const size_t size,
+                 buffer<T> dataA, buffer<T> dataB, buffer<T> dataC) {
+  // Read & write Buffer A
+  g.add([&](handler &cgh) {
+    auto pData = dataA.template get_access<access::mode::read_write>(cgh);
+    cgh.parallel_for<increment_kernel>(range<1>(size),
+                                       [=](item<1> id) { pData[id]++; });
+  });
+
+  // Reads Buffer A
+  // Read & Write Buffer B
+  g.add([&](handler &cgh) {
+    auto pData1 = dataA.template get_access<access::mode::read>(cgh);
+    auto pData2 = dataB.template get_access<access::mode::read_write>(cgh);
+    cgh.parallel_for<add_kernel>(range<1>(size),
+                                 [=](item<1> id) { pData2[id] += pData1[id]; });
+  });
+
+  // Reads Buffer A
+  // Read & writes Buffer C
+  g.add([&](handler &cgh) {
+    auto pData1 = dataA.template get_access<access::mode::read>(cgh);
+    auto pData2 = dataC.template get_access<access::mode::read_write>(cgh);
+    cgh.parallel_for<subtract_kernel>(
+        range<1>(size), [=](item<1> id) { pData2[id] -= pData1[id]; });
+  });
+
+  // Read & write Buffers B and C
+  g.add([&](handler &cgh) {
+    auto pData1 = dataB.template get_access<access::mode::read_write>(cgh);
+    auto pData2 = dataC.template get_access<access::mode::read_write>(cgh);
+    cgh.parallel_for<decrement_kernel>(range<1>(size), [=](item<1> id) {
+      pData1[id]--;
+      pData2[id]--;
+    });
+  });
+}
+
+// Runs a series of 4 kernels with a diamond dependency pattern
 template <typename T>
 void run_kernels_usm(sycl::queue q, const size_t size, T *dataA, T *dataB,
                      T *dataC) {
@@ -111,6 +146,52 @@ void run_kernels_usm(sycl::queue q, const size_t size, T *dataA, T *dataB,
       dataC[linID]--;
     });
   });
+}
+
+// Adds a series of 4 kernels with a diamond dependency pattern
+template <typename T>
+void add_kernels_usm(command_graph<graph_state::modifiable> g,
+                     const size_t size, T *dataA, T *dataB, T *dataC) {
+  // Read & write Buffer A
+  auto nodeA = g.add([&](handler &cgh) {
+    cgh.parallel_for<increment_kernel_usm>(range<1>(size), [=](item<1> id) {
+      auto linID = id.get_linear_id();
+      dataA[linID]++;
+    });
+  });
+
+  // Reads Buffer A
+  // Read & Write Buffer B
+  auto nodeB = g.add(
+      [&](handler &cgh) {
+        cgh.parallel_for<add_kernel_usm>(range<1>(size), [=](item<1> id) {
+          auto linID = id.get_linear_id();
+          dataB[linID] += dataA[linID];
+        });
+      },
+      {nodeA});
+
+  // Reads Buffer A
+  // Read & writes Buffer C
+  auto nodeC = g.add(
+      [&](handler &cgh) {
+        cgh.parallel_for<subtract_kernel_usm>(range<1>(size), [=](item<1> id) {
+          auto linID = id.get_linear_id();
+          dataC[linID] -= dataA[linID];
+        });
+      },
+      {nodeA});
+
+  // Read & write Buffers B and C
+  g.add(
+      [&](handler &cgh) {
+        cgh.parallel_for<decrement_kernel_usm>(range<1>(size), [=](item<1> id) {
+          auto linID = id.get_linear_id();
+          dataB[linID]--;
+          dataC[linID]--;
+        });
+      },
+      {nodeB, nodeC});
 }
 
 /** Calculates reference data on the host for a given number of executions of
