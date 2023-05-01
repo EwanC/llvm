@@ -2,6 +2,9 @@
 // RUN: %clangxx -pthread -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
+// Expected fail as thread safety not yet implemented
+// XFAIL: *
+
 // Test each thread recording the same graph to a different queue.
 
 #include "graph_common.hpp"
@@ -24,32 +27,39 @@ int main() {
   std::iota(dataB.begin(), dataB.end(), 10);
   std::iota(dataC.begin(), dataC.end(), 1000);
 
-  {
-    ext::oneapi::experimental::command_graph graph{testQueue.get_context(),
-                                                   testQueue.get_device()};
-    buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
-    buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
-    buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-    auto recordGraph = [&]() {
-      queue myQueue;
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-      // Record commands to graph
-      graph.begin_recording(myQueue);
-      run_kernels(myQueue, size, bufferA, bufferB, bufferC);
-      graph.end_recording();
-    };
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    std::vector<std::thread> threads;
-    threads.reserve(iterations);
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads.emplace_back(recordGraph);
+  auto recordGraph = [&]() {
+    queue myQueue;
+
+    // Record commands to graph
+    graph.begin_recording(myQueue);
+    run_kernels_usm(myQueue, size, ptrA, ptrB, ptrC);
+    graph.end_recording();
+  };
+
+  std::vector<std::thread> threads;
+  threads.reserve(iterations);
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads.emplace_back(recordGraph);
     }
 
     for (unsigned i = 0; i < iterations; ++i) {
       threads[i].join();
     }
-  }
 
-  return 0;
+    free(ptrA, testQueue);
+    free(ptrB, testQueue);
+    free(ptrC, testQueue);
+
+    return 0;
 }

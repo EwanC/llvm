@@ -1,14 +1,13 @@
 // REQUIRES: level_zero, gpu
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
-// XFAIL:*
 
-/** This test uses a host_task within a command_graph recording
- */
+// Expected fail as host tasks are not implemented yet
+// XFAIL: *
+
+// This test uses a host_task within a command_graph recording
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 class host_task_add;
 class host_task_inc;
@@ -17,6 +16,10 @@ int main() {
   queue testQueue;
 
   using T = int;
+
+  if (!testQueue.get_device().has(sycl::aspect::usm_shared_allocations)) {
+    return 0;
+  }
 
   const T modValue = T{7};
   std::vector<T> dataA(size), dataB(size), dataC(size);
@@ -34,58 +37,61 @@ int main() {
     }
   }
 
-  {
-    ext::oneapi::experimental::command_graph<
-        ext::oneapi::experimental::graph_state::modifiable>
-        graph{testQueue.get_context(), testQueue.get_device()};
-    buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
-    buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
-    buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+  exp_ext::command_graph<exp_ext::graph_state::modifiable> graph{
+      testQueue.get_context(), testQueue.get_device()};
 
-    graph.begin_recording(testQueue);
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_shared<T>(size, testQueue);
 
-    // Vector add to output
-    testQueue.submit([&](handler &cgh) {
-      auto ptrA = bufferA.get_access<access::mode::read>(cgh);
-      auto ptrB = bufferB.get_access<access::mode::read>(cgh);
-      auto ptrOut = bufferC.get_access<access::mode::read_write>(cgh);
-      cgh.parallel_for<host_task_add>(range<1>(size), [=](item<1> id) {
-        ptrOut[id] += ptrA[id] + ptrB[id];
-      });
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
+
+  graph.begin_recording(testQueue);
+
+  // Vector add to output
+  event node1 = testQueue.submit([&](handler &cgh) {
+    cgh.parallel_for<host_task_add>(
+        range<1>(size), [=](item<1> id) { ptrC[id] += ptrA[id] + ptrB[id]; });
+  });
+
+  // Modify the output values in a host_task
+  auto node2 = testQueue.submit([&](handler &cgh) {
+    cgh.depends_on(node1);
+    cgh.host_task([=]() {
+      for (size_t i = 0; i < size; i++) {
+        ptrC[i] += modValue;
+      }
     });
+  });
 
-    // Modify the output values in a host_task
-    testQueue.submit([&](handler &cgh) {
-      // This should be access::target::host_task but it has not been
-      // implemented yet.
-      auto hostC = bufferC.get_access<access::mode::read_write,
-                                      access::target::host_buffer>(cgh);
-      cgh.host_task([=]() {
-        for (size_t i = 0; i < size; i++) {
-          hostC[i] += modValue;
-        }
-      });
-    });
+  // Modify temp buffer and write to output buffer
+  testQueue.submit([&](handler &cgh) {
+    cgh.depends_on(node2);
+    cgh.parallel_for<host_task_inc>(range<1>(size),
+                                    [=](item<1> id) { ptrC[id] += 1; });
+  });
+  graph.end_recording();
 
-    // Modify temp buffer and write to output buffer
-    testQueue.submit([&](handler &cgh) {
-      auto ptrOut = bufferC.get_access<access::mode::read_write>(cgh);
-      cgh.parallel_for<host_task_inc>(range<1>(size),
-                                      [=](item<1> id) { ptrOut[id] += 1; });
-    });
-    graph.end_recording();
+  auto graphExec = graph.finalize();
 
-    auto graphExec = graph.finalize();
-
-    // Execute several iterations of the graph
-    for (unsigned n = 0; n < iterations; n++) {
-      testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
+  // Execute several iterations of the graph
+  for (unsigned n = 0; n < iterations; n++) {
+    testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
     }
     // Perform a wait on all graph submissions.
-    testQueue.wait();
-  }
+    testQueue.wait_and_throw();
 
-  assert(referenceC == dataC);
+    testQueue.copy(ptrC, dataC.data(), size);
+    testQueue.wait_and_throw();
 
-  return 0;
+    free(ptrA, testQueue);
+    free(ptrB, testQueue);
+    free(ptrC, testQueue);
+
+    assert(referenceC == dataC);
+
+    return 0;
 }

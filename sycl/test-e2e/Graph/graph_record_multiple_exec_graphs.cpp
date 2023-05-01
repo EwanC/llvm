@@ -2,13 +2,10 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-/** This test attempts creating multiple executable graphs from one modifiable
- * graph.
- */
+// This test attempts creating multiple executable graphs from one modifiable
+// graph.
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 int main() {
   queue testQueue;
@@ -27,38 +24,46 @@ int main() {
   calculate_reference_data(iterations, size, referenceA, referenceB,
                            referenceC);
 
-  {
-    ext::oneapi::experimental::command_graph<
-        ext::oneapi::experimental::graph_state::modifiable>
-        graph{testQueue.get_context(), testQueue.get_device()};
-    buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
-    buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
-    buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-    // Run the kernels once first outside of the graph.
-    run_kernels(testQueue, size, bufferA, bufferB, bufferC);
-    testQueue.wait_and_throw();
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    graph.begin_recording(testQueue);
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    // Record commands to graph
-    run_kernels(testQueue, size, bufferA, bufferB, bufferC);
+  run_kernels_usm(testQueue, size, ptrA, ptrB, ptrC);
+  testQueue.wait_and_throw();
 
-    graph.end_recording();
+  graph.begin_recording(testQueue);
+  // Record commands to graph
+  run_kernels_usm(testQueue, size, ptrA, ptrB, ptrC);
+  graph.end_recording();
 
-    // Execute several iterations of the graph (first iteration has already
-    // run before graph recording)
-    for (unsigned n = 1; n < iterations; n++) {
-      auto graphExec = graph.finalize();
-      testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
+  // Execute several iterations of the graph (first iteration has already
+  // run before graph recording)
+  for (unsigned n = 1; n < iterations; n++) {
+    auto graphExec = graph.finalize();
+    testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
     }
     // Perform a wait on all graph submissions.
-    testQueue.wait();
-  }
+    testQueue.wait_and_throw();
 
-  assert(referenceA == dataA);
-  assert(referenceB == dataB);
-  assert(referenceC == dataC);
+    testQueue.copy(ptrA, dataA.data(), size);
+    testQueue.copy(ptrB, dataB.data(), size);
+    testQueue.copy(ptrC, dataC.data(), size);
+    testQueue.wait_and_throw();
 
-  return 0;
+    free(ptrA, testQueue);
+    free(ptrB, testQueue);
+    free(ptrC, testQueue);
+
+    assert(referenceA == dataA);
+    assert(referenceB == dataB);
+    assert(referenceC == dataC);
+
+    return 0;
 }

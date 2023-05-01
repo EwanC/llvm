@@ -2,15 +2,15 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-/** This test creates a temporary buffer (which is reinterpreted from the main
- * application buffers) which is used in kernels but destroyed before
- * finalization and execution of the graph. The original buffers lifetime
- * extends until after execution of the graph.
- */
+// Expected fail as buffer accessors not yet supported
+// XFAIL: *
+
+// This test creates a temporary buffer (which is reinterpreted from the main
+// application buffers) which is used in kernels but destroyed before
+// finalization and execution of the graph. The original buffers lifetime
+// extends until after execution of the graph.
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 int main() {
   queue testQueue;
@@ -30,9 +30,8 @@ int main() {
                            referenceC);
 
   {
-    ext::oneapi::experimental::command_graph<
-        ext::oneapi::experimental::graph_state::modifiable>
-        graph{testQueue.get_context(), testQueue.get_device()};
+    exp_ext::command_graph graph{testQueue.get_context(),
+                                 testQueue.get_device()};
     buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
     buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
     buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};

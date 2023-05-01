@@ -2,12 +2,12 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-/** Tests recording and submission of a graph containing usm memcpy commands.
- */
+// Expected fail as mem copy not implemented yet
+// XFAIL: *
+
+// Tests recording and submission of a graph containing usm memcpy commands.
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 class kernel_mod_a;
 class kernel_mod_b;
@@ -37,65 +37,63 @@ int main() {
     }
   }
 
-  ext::oneapi::experimental::command_graph<
-      ext::oneapi::experimental::graph_state::modifiable>
-      graph{testQueue.get_context(), testQueue.get_device()};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-  {
-    auto ptrA = malloc_device<T>(dataA.size(), testQueue);
-    testQueue.memcpy(ptrA, dataA.data(), dataA.size() * sizeof(T)).wait();
-    auto ptrB = malloc_device<T>(dataB.size(), testQueue);
-    testQueue.memcpy(ptrB, dataB.data(), dataB.size() * sizeof(T)).wait();
-    auto ptrC = malloc_device<T>(dataC.size(), testQueue);
-    testQueue.memcpy(ptrC, dataC.data(), dataC.size() * sizeof(T)).wait();
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    graph.begin_recording(testQueue);
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    // Record commands to graph
-    // memcpy from B to A
-    auto eventA = testQueue.copy(ptrB, ptrA, size);
-    // Read & write A
-    auto eventB = testQueue.submit([&](handler &cgh) {
-      cgh.depends_on(eventA);
-      cgh.parallel_for<kernel_mod_a>(range<1>(size), [=](item<1> id) {
-        auto linID = id.get_linear_id();
-        ptrA[linID] += modValue;
-      });
+  graph.begin_recording(testQueue);
+
+  // Record commands to graph
+  // memcpy from B to A
+  auto eventA = testQueue.copy(ptrB, ptrA, size);
+  // Read & write A
+  auto eventB = testQueue.submit([&](handler &cgh) {
+    cgh.depends_on(eventA);
+    cgh.parallel_for<kernel_mod_a>(range<1>(size), [=](item<1> id) {
+      auto linID = id.get_linear_id();
+      ptrA[linID] += modValue;
     });
+  });
 
-    // memcpy from A to B
-    auto eventC = testQueue.copy(ptrA, ptrB, size, eventB);
+  // memcpy from A to B
+  auto eventC = testQueue.copy(ptrA, ptrB, size, eventB);
 
-    // Read and write B
-    auto eventD = testQueue.submit([&](handler &cgh) {
-      cgh.depends_on(eventC);
-      cgh.parallel_for<kernel_mod_b>(range<1>(size), [=](item<1> id) {
-        auto linID = id.get_linear_id();
-        ptrB[linID] += modValue;
-      });
+  // Read and write B
+  auto eventD = testQueue.submit([&](handler &cgh) {
+    cgh.depends_on(eventC);
+    cgh.parallel_for<kernel_mod_b>(range<1>(size), [=](item<1> id) {
+      auto linID = id.get_linear_id();
+      ptrB[linID] += modValue;
     });
+  });
 
-    // memcpy from B to C
-    testQueue.copy(ptrB, ptrC, size, eventD);
+  // memcpy from B to C
+  testQueue.copy(ptrB, ptrC, size, eventD);
 
-    graph.end_recording();
-    auto graphExec = graph.finalize();
+  graph.end_recording();
+  auto graphExec = graph.finalize();
 
-    // Execute graph over n iterations
-    for (unsigned n = 0; n < iterations; n++) {
-      testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
-    }
-    // Perform a wait on all graph submissions.
-    testQueue.wait();
-
-    testQueue.memcpy(dataA.data(), ptrA, dataA.size() * sizeof(T)).wait();
-    testQueue.memcpy(dataB.data(), ptrB, dataB.size() * sizeof(T)).wait();
-    testQueue.memcpy(dataC.data(), ptrC, dataC.size() * sizeof(T)).wait();
-
-    free(ptrA, testQueue.get_context());
-    free(ptrB, testQueue.get_context());
-    free(ptrC, testQueue.get_context());
+  // Execute graph over n iterations
+  for (unsigned n = 0; n < iterations; n++) {
+    testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
   }
+  // Perform a wait on all graph submissions.
+  testQueue.wait_and_throw();
+
+  testQueue.copy(ptrA, dataA.data(), size);
+  testQueue.copy(ptrB, dataB.data(), size);
+  testQueue.copy(ptrC, dataC.data(), size);
+
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
 
   assert(referenceA == dataA);
   assert(referenceB == dataB);

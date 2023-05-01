@@ -2,13 +2,10 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-/** Tests basic adding of nodes and submission of a graph using USM pointers for
- * inputs and outputs.
- */
+// Tests basic adding of nodes and submission of a graph using USM pointers for
+// inputs and outputs.
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 int main() {
   queue testQueue;
@@ -27,37 +24,37 @@ int main() {
   calculate_reference_data(iterations, size, referenceA, referenceB,
                            referenceC);
 
-  {
-    ext::oneapi::experimental::command_graph<
-        ext::oneapi::experimental::graph_state::modifiable>
-        graph{testQueue.get_context(), testQueue.get_device()};
-    auto ptrA = malloc_device<T>(dataA.size(), testQueue);
-    testQueue.memcpy(ptrA, dataA.data(), dataA.size() * sizeof(T)).wait();
-    auto ptrB = malloc_device<T>(dataB.size(), testQueue);
-    testQueue.memcpy(ptrB, dataB.data(), dataB.size() * sizeof(T)).wait();
-    auto ptrC = malloc_device<T>(dataC.size(), testQueue);
-    testQueue.memcpy(ptrC, dataC.data(), dataC.size() * sizeof(T)).wait();
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-    // Record commands to graph
-    add_kernels_usm(graph, size, ptrA, ptrB, ptrC);
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    auto graphExec = graph.finalize();
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    // Execute several iterations of the graph
-    for (unsigned n = 0; n < iterations; n++) {
-      testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
-    }
-    // Perform a wait on all graph submissions.
-    testQueue.wait_and_throw();
+  // Record commands to graph
+  add_kernels_usm(graph, size, ptrA, ptrB, ptrC);
 
-    testQueue.memcpy(dataA.data(), ptrA, dataA.size() * sizeof(T)).wait();
-    testQueue.memcpy(dataB.data(), ptrB, dataB.size() * sizeof(T)).wait();
-    testQueue.memcpy(dataC.data(), ptrC, dataC.size() * sizeof(T)).wait();
+  auto graphExec = graph.finalize();
 
-    free(ptrA, testQueue.get_context());
-    free(ptrB, testQueue.get_context());
-    free(ptrC, testQueue.get_context());
+  // Execute several iterations of the graph
+  for (unsigned n = 0; n < iterations; n++) {
+    testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
   }
+  // Perform a wait on all graph submissions.
+  testQueue.wait_and_throw();
+
+  testQueue.copy(ptrA, dataA.data(), size);
+  testQueue.copy(ptrB, dataB.data(), size);
+  testQueue.copy(ptrC, dataC.data(), size);
+  testQueue.wait_and_throw();
+
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
 
   assert(referenceA == dataA);
   assert(referenceB == dataB);

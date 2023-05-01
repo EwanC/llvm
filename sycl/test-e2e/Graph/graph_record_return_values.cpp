@@ -2,18 +2,14 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-/**  Tests the return values from queue graph functions which change the
- * internal queue state
- */
+// Tests the return values from queue graph functions which change the
+// internal queue state
 
 #include "graph_common.hpp"
 
-using namespace sycl;
-
 int main() {
   queue testQueue;
-  ext::oneapi::experimental::command_graph graph{testQueue.get_context(),
-                                                 testQueue.get_device()};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
   bool changedState = graph.end_recording();
   assert(changedState == false);

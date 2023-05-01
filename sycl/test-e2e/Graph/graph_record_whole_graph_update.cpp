@@ -1,15 +1,14 @@
 // REQUIRES: level_zero, gpu
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
+
+// Expected fail as executable graph update not implemented yet
 // XFAIL: *
 
-/** Tests whole graph update by recording two graphs with different buffers and
- * attempting to update one from the other.
- */
+// Tests whole graph update by recording two graphs with different buffers and
+// attempting to update one from the other.
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 int main() {
   queue testQueue;
@@ -32,40 +31,49 @@ int main() {
   calculate_reference_data(iterations, size, referenceA, referenceB,
                            referenceC);
 
-  {
-    ext::oneapi::experimental::command_graph graphA{testQueue.get_context(),
-                                                    testQueue.get_device()};
-    buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
-    buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
-    buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+  exp_ext::command_graph graphA{testQueue.get_context(),
+                                testQueue.get_device()};
 
-    graphA.begin_recording(testQueue);
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    // Record commands to graph
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    run_kernels(testQueue, size, bufferA, bufferB, bufferC);
+  graphA.begin_recording(testQueue);
 
-    graphA.end_recording();
+  // Record commands to graph
+  run_kernels_usm(testQueue, size, ptrA, ptrB, ptrC);
 
-    auto graphExec = graphA.finalize();
+  graphA.end_recording();
 
-    ext::oneapi::experimental::command_graph graphB{testQueue.get_context(),
-                                                    testQueue.get_device()};
+  auto graphExec = graphA.finalize();
 
-    buffer<T> bufferA2{dataA2.data(), range<1>{dataA2.size()}};
-    buffer<T> bufferB2{dataB2.data(), range<1>{dataB2.size()}};
-    buffer<T> bufferC2{dataC2.data(), range<1>{dataC2.size()}};
+  exp_ext::command_graph graphB{testQueue.get_context(),
+                                testQueue.get_device()};
 
-    graphB.begin_recording(testQueue);
+  T *ptrA2 = malloc_device<T>(size, testQueue);
+  T *ptrB2 = malloc_device<T>(size, testQueue);
+  T *ptrC2 = malloc_device<T>(size, testQueue);
 
-    // Record commands to graph
+  testQueue.copy(dataA2.data(), ptrA2, size);
+  testQueue.copy(dataB2.data(), ptrB2, size);
+  testQueue.copy(dataC2.data(), ptrC2, size);
+  testQueue.wait_and_throw();
 
-    run_kernels(testQueue, size, bufferA2, bufferB2, bufferC2);
+  graphB.begin_recording(testQueue);
 
-    graphB.end_recording();
-    // Execute several iterations of the graph for 1st set of buffers
-    for (unsigned n = 0; n < iterations; n++) {
-      testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
+  // Record commands to graph
+
+  run_kernels_usm(testQueue, size, ptrA2, ptrB2, ptrC2);
+
+  graphB.end_recording();
+  // Execute several iterations of the graph for 1st set of buffers
+  for (unsigned n = 0; n < iterations; n++) {
+    testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
     }
 
     graphExec.update(graphB);
@@ -76,16 +84,32 @@ int main() {
     }
 
     // Perform a wait on all graph submissions.
-    testQueue.wait();
-  }
+    testQueue.wait_and_throw();
 
-  assert(referenceA == dataA);
-  assert(referenceB == dataB);
-  assert(referenceC == dataC);
+    testQueue.copy(ptrA, dataA.data(), size);
+    testQueue.copy(ptrB, dataB.data(), size);
+    testQueue.copy(ptrC, dataC.data(), size);
 
-  assert(referenceA == dataA2);
-  assert(referenceB == dataB2);
-  assert(referenceC == dataC2);
+    testQueue.copy(ptrA2, dataA2.data(), size);
+    testQueue.copy(ptrB2, dataB2.data(), size);
+    testQueue.copy(ptrC2, dataC2.data(), size);
+    testQueue.wait_and_throw();
 
-  return 0;
+    free(ptrA, testQueue);
+    free(ptrB, testQueue);
+    free(ptrC, testQueue);
+
+    free(ptrA2, testQueue);
+    free(ptrB2, testQueue);
+    free(ptrC2, testQueue);
+
+    assert(referenceA == dataA);
+    assert(referenceB == dataB);
+    assert(referenceC == dataC);
+
+    assert(referenceA == dataA2);
+    assert(referenceB == dataB2);
+    assert(referenceC == dataC2);
+
+    return 0;
 }

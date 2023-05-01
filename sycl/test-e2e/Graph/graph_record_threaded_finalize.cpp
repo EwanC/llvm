@@ -8,8 +8,6 @@
 
 #include <thread>
 
-using namespace sycl;
-
 int main() {
   queue testQueue;
 
@@ -28,31 +26,34 @@ int main() {
   calculate_reference_data(iterations, size, referenceA, referenceB,
                            referenceC);
 
-  {
-    ext::oneapi::experimental::command_graph<
-        ext::oneapi::experimental::graph_state::modifiable>
-        graph{testQueue.get_context(), testQueue.get_device()};
-    buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
-    buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
-    buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-    graph.begin_recording(testQueue);
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    // Record commands to graph
-    run_kernels(testQueue, size, bufferA, bufferB, bufferC);
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    graph.end_recording();
-    auto finalizeGraph = [&]() {
-      auto graphExec = graph.finalize();
-      testQueue.submit(
-          [&](sycl::handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
-    };
+  graph.begin_recording(testQueue);
 
-    std::vector<std::thread> threads;
-    threads.reserve(iterations);
+  // Record commands to graph
+  run_kernels_usm(testQueue, size, ptrA, ptrB, ptrC);
 
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads.emplace_back(finalizeGraph);
+  graph.end_recording();
+  auto finalizeGraph = [&]() {
+    auto graphExec = graph.finalize();
+    testQueue.submit(
+        [&](sycl::handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
+  };
+
+  std::vector<std::thread> threads;
+  threads.reserve(iterations);
+
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads.emplace_back(finalizeGraph);
     }
 
     for (unsigned i = 0; i < iterations; ++i) {
@@ -61,11 +62,19 @@ int main() {
 
     // Perform a wait on all graph submissions.
     testQueue.wait();
-  }
 
-  assert(referenceA == dataA);
-  assert(referenceB == dataB);
-  assert(referenceC == dataC);
+    testQueue.copy(ptrA, dataA.data(), size);
+    testQueue.copy(ptrB, dataB.data(), size);
+    testQueue.copy(ptrC, dataC.data(), size);
+    testQueue.wait_and_throw();
 
-  return 0;
+    free(ptrA, testQueue);
+    free(ptrB, testQueue);
+    free(ptrC, testQueue);
+
+    assert(referenceA == dataA);
+    assert(referenceB == dataB);
+    assert(referenceC == dataC);
+
+    return 0;
 }

@@ -2,11 +2,9 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-/** Tests queue shortcuts for executing a graph */
+// Tests queue shortcuts for executing a graph
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 int main() {
   queue testQueue;
@@ -25,39 +23,53 @@ int main() {
   calculate_reference_data(iterations, size, referenceA, referenceB,
                            referenceC);
 
-  {
-    ext::oneapi::experimental::command_graph<
-        ext::oneapi::experimental::graph_state::modifiable>
-        graph{testQueue.get_context(), testQueue.get_device()};
-    buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
-    buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
-    buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-    graph.begin_recording(testQueue);
+  buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
+  buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
+  buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
 
-    // Record commands to graph
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    run_kernels(testQueue, size, bufferA, bufferB, bufferC);
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    graph.end_recording();
-    auto graphExec = graph.finalize();
+  graph.begin_recording(testQueue);
 
-    // Execute several iterations of the graph using the different shortcuts
-    event e = testQueue.ext_oneapi_graph(graphExec);
+  // Record commands to graph
+  run_kernels_usm(testQueue, size, ptrA, ptrB, ptrC);
 
-    assert(iterations > 2);
-    const unsigned loop_iterations = iterations - 2;
-    std::vector<event> events(loop_iterations);
-    for (unsigned n = 0; n < loop_iterations; n++) {
-      events[n] = testQueue.ext_oneapi_graph(graphExec, e);
+  graph.end_recording();
+  auto graphExec = graph.finalize();
+
+  // Execute several iterations of the graph using the different shortcuts
+  event e = testQueue.ext_oneapi_graph(graphExec);
+
+  assert(iterations > 2);
+  const unsigned loop_iterations = iterations - 2;
+  std::vector<event> events(loop_iterations);
+  for (unsigned n = 0; n < loop_iterations; n++) {
+    events[n] = testQueue.ext_oneapi_graph(graphExec, e);
     }
 
     testQueue.ext_oneapi_graph(graphExec, events).wait();
-  }
 
-  assert(referenceA == dataA);
-  assert(referenceB == dataB);
-  assert(referenceC == dataC);
+    testQueue.copy(ptrA, dataA.data(), size);
+    testQueue.copy(ptrB, dataB.data(), size);
+    testQueue.copy(ptrC, dataC.data(), size);
+    testQueue.wait_and_throw();
 
-  return 0;
+    free(ptrA, testQueue);
+    free(ptrB, testQueue);
+    free(ptrC, testQueue);
+
+    assert(referenceA == dataA);
+    assert(referenceB == dataB);
+    assert(referenceC == dataC);
+
+    return 0;
 }

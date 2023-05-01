@@ -7,9 +7,6 @@
 // defined.
 
 #include "graph_common.hpp"
-
-using namespace sycl;
-
 #include <thread>
 
 int main() {
@@ -25,31 +22,37 @@ int main() {
   std::iota(dataB.begin(), dataB.end(), 10);
   std::iota(dataC.begin(), dataC.end(), 1000);
 
-  {
-    ext::oneapi::experimental::command_graph<
-        ext::oneapi::experimental::graph_state::modifiable>
-        graph{testQueue.get_context(), testQueue.get_device()};
-    buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
-    buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
-    buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-    graph.begin_recording(testQueue);
-    auto recordGraph = [&]() {
-      // Record commands to graph
-      run_kernels(testQueue, size, bufferA, bufferB, bufferC);
-    };
-    graph.end_recording();
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    std::vector<std::thread> threads;
-    threads.reserve(iterations);
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads.emplace_back(recordGraph);
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
+
+  graph.begin_recording(testQueue);
+  auto recordGraph = [&]() {
+    // Record commands to graph
+    run_kernels_usm(testQueue, size, ptrA, ptrB, ptrC);
+  };
+  graph.end_recording();
+
+  std::vector<std::thread> threads;
+  threads.reserve(iterations);
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads.emplace_back(recordGraph);
     }
 
     for (unsigned i = 0; i < iterations; ++i) {
       threads[i].join();
     }
-  }
 
-  return 0;
+    free(ptrA, testQueue);
+    free(ptrB, testQueue);
+    free(ptrC, testQueue);
+
+    return 0;
 }

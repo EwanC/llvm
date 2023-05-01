@@ -1,6 +1,8 @@
 // REQUIRES: level_zero, gpu
 // RUN: %clangxx -pthread -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
+
+// Expected fail as executable update isn't implemented yet
 // XFAIL: *
 
 // Test updating a graph in a threaded situation
@@ -9,7 +11,6 @@
 
 #include <thread>
 
-using namespace sycl;
 
 int main() {
   queue testQueue;
@@ -28,49 +29,62 @@ int main() {
   auto dataB2 = dataB;
   auto dataC2 = dataC;
 
-  {
-    ext::oneapi::experimental::command_graph graphA{testQueue.get_context(),
-                                                    testQueue.get_device()};
-    buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
-    buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
-    buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+  exp_ext::command_graph graphA{testQueue.get_context(),
+                                testQueue.get_device()};
 
-    graphA.begin_recording(testQueue);
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    // Record commands to graph
-    run_kernels(testQueue, size, bufferA, bufferB, bufferC);
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    graphA.end_recording();
+  graphA.begin_recording(testQueue);
 
-    auto graphExec = graphA.finalize();
+  // Record commands to graph
+  run_kernels_usm(testQueue, size, ptrA, ptrB, ptrC);
 
-    ext::oneapi::experimental::command_graph graphB{testQueue.get_context(),
-                                                    testQueue.get_device()};
+  graphA.end_recording();
 
-    buffer<T> bufferA2{dataA2.data(), range<1>{dataA2.size()}};
-    buffer<T> bufferB2{dataB2.data(), range<1>{dataB2.size()}};
-    buffer<T> bufferC2{dataC2.data(), range<1>{dataC2.size()}};
+  auto graphExec = graphA.finalize();
 
-    graphB.begin_recording(testQueue);
+  exp_ext::command_graph graphB{testQueue.get_context(),
+                                testQueue.get_device()};
 
-    // Record commands to graph
-    run_kernels(testQueue, size, bufferA2, bufferB2, bufferC2);
+  T *ptrA2 = malloc_device<T>(size, testQueue);
+  T *ptrB2 = malloc_device<T>(size, testQueue);
+  T *ptrC2 = malloc_device<T>(size, testQueue);
 
-    graphB.end_recording();
+  testQueue.copy(dataA2.data(), ptrA2, size);
+  testQueue.copy(dataB2.data(), ptrB2, size);
+  testQueue.copy(dataC2.data(), ptrC2, size);
+  testQueue.wait_and_throw();
 
-    auto updateGraph = [&]() { graphExec.update(graphB); };
+  graphB.begin_recording(testQueue);
 
-    std::vector<std::thread> threads;
-    threads.reserve(iterations);
+  // Record commands to graph
+  run_kernels_usm(testQueue, size, ptrA2, ptrB2, ptrC2);
 
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads.emplace_back(updateGraph);
+  graphB.end_recording();
+
+  auto updateGraph = [&]() { graphExec.update(graphB); };
+
+  std::vector<std::thread> threads;
+  threads.reserve(iterations);
+
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads.emplace_back(updateGraph);
     }
 
     for (unsigned i = 0; i < iterations; ++i) {
       threads[i].join();
     }
-  }
 
-  return 0;
+    free(ptrA, testQueue);
+    free(ptrB, testQueue);
+    free(ptrC, testQueue);
+
+    return 0;
 }

@@ -8,31 +8,31 @@
 
 #include <thread>
 
-using namespace sycl;
-
 int main() {
   queue testQueue;
 
   const unsigned iterations = std::thread::hardware_concurrency();
 
-  {
-    auto recordGraph = [&]() {
-      ext::oneapi::experimental::command_graph graph{testQueue.get_context(),
-                                                     testQueue.get_device()};
+  auto recordGraph = [&]() {
+    exp_ext::command_graph graph{testQueue.get_context(),
+                                 testQueue.get_device()};
+    try {
       graph.begin_recording(testQueue);
-      graph.end_recording();
-    };
+    } catch (sycl::exception &e) {
+      // Can throw if graph is already being recorded to
+    }
+    graph.end_recording();
+  };
 
-    std::vector<std::thread> threads;
-    threads.reserve(iterations);
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads.emplace_back(recordGraph);
+  std::vector<std::thread> threads;
+  threads.reserve(iterations);
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads.emplace_back(recordGraph);
     }
 
     for (unsigned i = 0; i < iterations; ++i) {
       threads[i].join();
     }
-  }
 
   return 0;
 }

@@ -2,11 +2,11 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-// Expected fail due to buffer accessors not forming edges
+// Expected fail as buffer accessors not yet supported
 // XFAIL: *
 
-// Tests adding nodes to a graph, and submitting the graph using buffers and
-// accessors for inputs and outputs.
+// Tests basic recording and submission of a graph using buffers and accessors
+// for inputs and outputs.
 
 #include "graph_common.hpp"
 
@@ -28,15 +28,19 @@ int main() {
                            referenceC);
 
   {
-    ext_exp::command_graph <
-        graph{testQueue.get_context(), testQueue.get_device()};
+    exp_ext::command_graph graph{testQueue.get_context(),
+                                 testQueue.get_device()};
     buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
     buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
     buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
 
-    // Add commands to graph
-    add_kernels(graph, size, bufferA, bufferB, bufferC);
+    graph.begin_recording(testQueue);
 
+    // Record commands to graph
+
+    run_kernels(testQueue, size, bufferA, bufferB, bufferC);
+
+    graph.end_recording();
     auto graphExec = graph.finalize();
 
     // Execute several iterations of the graph
@@ -44,7 +48,7 @@ int main() {
       testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
     }
     // Perform a wait on all graph submissions.
-    testQueue.wait();
+    testQueue.wait_and_throw();
   }
 
   assert(referenceA == dataA);

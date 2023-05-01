@@ -2,12 +2,13 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-/** Tests add a usm memcpy node and submitting graph.
- */
+// Expected fail as memcopy not implemented yet
+// XFAIL: *
+
+// Tests adding a usm memcpy node using the explicit API and submitting
+// the graph.
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 class kernel_mod_a;
 class kernel_mod_b;
@@ -37,65 +38,64 @@ int main() {
     }
   }
 
-  ext::oneapi::experimental::command_graph<
-      ext::oneapi::experimental::graph_state::modifiable>
-      graph{testQueue.get_context(), testQueue.get_device()};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-  {
-    auto ptrA = malloc_device<T>(dataA.size(), testQueue);
-    testQueue.memcpy(ptrA, dataA.data(), dataA.size() * sizeof(T)).wait();
-    auto ptrB = malloc_device<T>(dataB.size(), testQueue);
-    testQueue.memcpy(ptrB, dataB.data(), dataB.size() * sizeof(T)).wait();
-    auto ptrC = malloc_device<T>(dataC.size(), testQueue);
-    testQueue.memcpy(ptrC, dataC.data(), dataC.size() * sizeof(T)).wait();
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    // memcpy from B to A
-    auto nodeA = graph.add([&](handler &cgh) { cgh.copy(ptrB, ptrA, size); });
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    // Read & write A
-    auto nodeB = graph.add(
-        [&](handler &cgh) {
-          cgh.parallel_for<kernel_mod_a>(range<1>(size), [=](item<1> id) {
-            auto linID = id.get_linear_id();
-            ptrA[linID] += modValue;
-          });
-        },
-        {nodeA});
+  // memcpy from B to A
+  auto nodeA = graph.add([&](handler &cgh) { cgh.copy(ptrB, ptrA, size); });
 
-    // memcpy from B to A
-    auto nodeC =
-        graph.add([&](handler &cgh) { cgh.copy(ptrA, ptrB, size); }, {nodeB});
+  // Read & write A
+  auto nodeB = graph.add(
+      [&](handler &cgh) {
+        cgh.parallel_for<kernel_mod_a>(range<1>(size), [=](item<1> id) {
+          auto linID = id.get_linear_id();
+          ptrA[linID] += modValue;
+        });
+      },
+      {exp_ext::property::node::depends_on(nodeA)});
 
-    // Read and write B
-    auto nodeD = graph.add(
-        [&](handler &cgh) {
-          cgh.parallel_for<kernel_mod_b>(range<1>(size), [=](item<1> id) {
-            auto linID = id.get_linear_id();
-            ptrB[linID] += modValue;
-          });
-        },
-        {nodeC});
+  // memcpy from B to A
+  auto nodeC = graph.add([&](handler &cgh) { cgh.copy(ptrA, ptrB, size); },
+                         {exp_ext::property::node::depends_on(nodeB)});
 
-    // memcpy from B to C
-    graph.add([&](handler &cgh) { cgh.copy(ptrB, ptrC, size); }, {nodeB});
+  // Read and write B
+  auto nodeD = graph.add(
+      [&](handler &cgh) {
+        cgh.parallel_for<kernel_mod_b>(range<1>(size), [=](item<1> id) {
+          auto linID = id.get_linear_id();
+          ptrB[linID] += modValue;
+        });
+      },
+      {exp_ext::property::node::depends_on(nodeC)});
 
-    auto graphExec = graph.finalize();
+  // memcpy from B to C
+  graph.add([&](handler &cgh) { cgh.copy(ptrB, ptrC, size); },
+            {exp_ext::property::node::depends_on(nodeB)});
 
-    // Execute graph over n iterations
-    for (unsigned n = 0; n < iterations; n++) {
-      testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
-    }
-    // Perform a wait on all graph submissions.
-    testQueue.wait();
+  auto graphExec = graph.finalize();
 
-    testQueue.memcpy(dataA.data(), ptrA, dataA.size() * sizeof(T)).wait();
-    testQueue.memcpy(dataB.data(), ptrB, dataB.size() * sizeof(T)).wait();
-    testQueue.memcpy(dataC.data(), ptrC, dataC.size() * sizeof(T)).wait();
-
-    free(ptrA, testQueue.get_context());
-    free(ptrB, testQueue.get_context());
-    free(ptrC, testQueue.get_context());
+  // Execute graph over n iterations
+  for (unsigned n = 0; n < iterations; n++) {
+    testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
   }
+  // Perform a wait on all graph submissions.
+  testQueue.wait_and_throw();
+
+  testQueue.copy(ptrA, dataA.data(), size);
+  testQueue.copy(ptrB, dataB.data(), size);
+  testQueue.copy(ptrC, dataC.data(), size);
+
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
 
   assert(referenceA == dataA);
   assert(referenceB == dataB);

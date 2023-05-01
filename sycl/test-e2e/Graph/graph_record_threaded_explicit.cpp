@@ -5,10 +5,7 @@
 // Test each thread adding of nodes to same graph
 
 #include "graph_common.hpp"
-
 #include <thread>
-
-using namespace sycl;
 
 int main() {
   queue testQueue;
@@ -24,28 +21,35 @@ int main() {
   std::iota(dataB.begin(), dataB.end(), 10);
   std::iota(dataC.begin(), dataC.end(), 1000);
 
-  {
-    ext::oneapi::experimental::command_graph graph{testQueue.get_context(),
-                                                   testQueue.get_device()};
-    buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
-    buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
-    buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-    auto AddNodesToGraph = [&]() {
-      // Add commands to graph
-      run_kernels(graph, size, bufferA, bufferB, bufferC);
-    };
+  T *ptrA = malloc_device<T>(size, testQueue);
+  T *ptrB = malloc_device<T>(size, testQueue);
+  T *ptrC = malloc_device<T>(size, testQueue);
 
-    std::vector<std::thread> threads;
-    threads.reserve(iterations);
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads.emplace_back(AddNodesToGraph);
-    }
+  testQueue.copy(dataA.data(), ptrA, size);
+  testQueue.copy(dataB.data(), ptrB, size);
+  testQueue.copy(dataC.data(), ptrC, size);
+  testQueue.wait_and_throw();
 
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads[i].join();
-    }
+  auto AddNodesToGraph = [&]() {
+    // Add commands to graph
+    add_kernels_usm(graph, size, ptrA, ptrB, ptrC);
+  };
+
+  std::vector<std::thread> threads;
+  threads.reserve(iterations);
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads.emplace_back(AddNodesToGraph);
   }
+
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads[i].join();
+  }
+
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
 
   return 0;
 }

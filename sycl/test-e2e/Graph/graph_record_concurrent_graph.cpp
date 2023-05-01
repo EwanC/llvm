@@ -2,21 +2,20 @@
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out
 
-/** Tests attempting to record to a command_graph when it is already being
- * recorded to by another queue.
- */
+// Expected fail as exception not yet implemented
+// XFAIL: *
+
+// Tests attempting to record to a command_graph when it is already being
+// recorded to by another queue.
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 int main() {
   queue testQueue;
 
   bool success = false;
 
-  ext::oneapi::experimental::command_graph graph{testQueue.get_context(),
-                                                 testQueue.get_device()};
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
   graph.begin_recording(testQueue);
 
   queue testQueue2;

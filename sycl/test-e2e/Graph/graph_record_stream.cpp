@@ -1,14 +1,13 @@
 // REQUIRES: level_zero, gpu
 // RUN: %clangxx -fsycl -fsycl-targets=%sycl_triple %s -o %t.out
 // RUN: %GPU_RUN_PLACEHOLDER %t.out %GPU_CHECK_PLACEHOLDER
+
+// Expected fail as sycl::stream is not implemented yet
 // XFAIL: *
 
-/** This test checks that we can use a stream within a command_graph recording
- */
+// This test checks that we can use a stream within a command_graph recording
 
 #include "graph_common.hpp"
-
-using namespace sycl;
 
 class stream_kernel;
 
@@ -23,32 +22,32 @@ int main() {
   // Initialize the data
   std::iota(dataIn.begin(), dataIn.end(), 1);
 
-  {
+  exp_ext::command_graph graph{testQueue.get_context(), testQueue.get_device()};
 
-    ext::oneapi::experimental::command_graph<
-        ext::oneapi::experimental::graph_state::modifiable>
-        graph{testQueue.get_context(), testQueue.get_device()};
-    buffer<T> bufferIn{dataIn.data(), range<1>{dataIn.size()}};
+  T *ptrIn = malloc_device<T>(work_items, testQueue);
+  testQueue.copy(dataIn.data(), ptrIn, work_items);
 
-    graph.begin_recording(testQueue);
+  graph.begin_recording(testQueue);
 
-    // Vector add to temporary output buffer
-    testQueue.submit([&](handler &cgh) {
-      auto accIn = bufferIn.get_access<access::mode::read>(cgh);
-      sycl::stream out(work_items * 16, 16, cgh);
-      cgh.parallel_for<stream_kernel>(range<1>(work_items), [=](item<1> id) {
-        out << "Val: " << accIn[id.get_linear_id()] << sycl::endl;
-      });
+  // Vector add to temporary output buffer
+  testQueue.submit([&](handler &cgh) {
+    sycl::stream out(work_items * 16, 16, cgh);
+    cgh.parallel_for<stream_kernel>(range<1>(work_items), [=](item<1> id) {
+      out << "Val: " << ptrIn[id.get_linear_id()] << sycl::endl;
     });
-    graph.end_recording();
+  });
+  graph.end_recording();
 
-    auto graphExec = graph.finalize();
+  auto graphExec = graph.finalize();
 
-    testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
+  testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
 
-    // Perform a wait on all graph submissions.
-    testQueue.wait();
-  }
+  // Perform a wait on all graph submissions.
+  testQueue.wait_and_throw();
+
+  testQueue.copy(ptrIn, dataIn.data(), size);
+
+  free(ptrIn, testQueue);
 
   return 0;
 }
