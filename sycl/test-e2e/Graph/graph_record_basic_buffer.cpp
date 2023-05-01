@@ -31,8 +31,11 @@ int main() {
     exp_ext::command_graph graph{testQueue.get_context(),
                                  testQueue.get_device()};
     buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
+    bufferA.set_write_back(false);
     buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
+    bufferB.set_write_back(false);
     buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+    bufferC.set_write_back(false);
 
     graph.begin_recording(testQueue);
 
@@ -49,11 +52,18 @@ int main() {
     }
     // Perform a wait on all graph submissions.
     testQueue.wait_and_throw();
-  }
 
-  assert(referenceA == dataA);
-  assert(referenceB == dataB);
-  assert(referenceC == dataC);
+    host_accessor hostAccA(bufferA);
+    host_accessor hostAccB(bufferB);
+    host_accessor hostAccC(bufferC);
+
+    for (size_t i = 0; i < size; i++) {
+      assert(referenceA[i] == hostAccA[i]);
+      assert(referenceB[i] == hostAccB[i]);
+      assert(referenceC[i] == hostAccC[i]);
+    }
+
+  }
 
   return 0;
 }

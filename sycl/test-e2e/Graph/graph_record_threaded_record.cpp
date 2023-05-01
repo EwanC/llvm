@@ -44,22 +44,22 @@ int main() {
     // Record commands to graph
     graph.begin_recording(myQueue);
     run_kernels_usm(myQueue, size, ptrA, ptrB, ptrC);
-    graph.end_recording();
+    graph.end_recording(myQueue);
   };
 
   std::vector<std::thread> threads;
   threads.reserve(iterations);
   for (unsigned i = 0; i < iterations; ++i) {
     threads.emplace_back(recordGraph);
-    }
+  }
 
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads[i].join();
-    }
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads[i].join();
+  }
 
-    free(ptrA, testQueue);
-    free(ptrB, testQueue);
-    free(ptrC, testQueue);
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
 
-    return 0;
+  return 0;
 }

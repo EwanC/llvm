@@ -54,22 +54,22 @@ int main() {
   std::vector<event> events(loop_iterations);
   for (unsigned n = 0; n < loop_iterations; n++) {
     events[n] = testQueue.ext_oneapi_graph(graphExec, e);
-    }
+  }
 
-    testQueue.ext_oneapi_graph(graphExec, events).wait();
+  testQueue.ext_oneapi_graph(graphExec, events).wait();
 
-    testQueue.copy(ptrA, dataA.data(), size);
-    testQueue.copy(ptrB, dataB.data(), size);
-    testQueue.copy(ptrC, dataC.data(), size);
-    testQueue.wait_and_throw();
+  testQueue.copy(ptrA, dataA.data(), size);
+  testQueue.copy(ptrB, dataB.data(), size);
+  testQueue.copy(ptrC, dataC.data(), size);
+  testQueue.wait_and_throw();
 
-    free(ptrA, testQueue);
-    free(ptrB, testQueue);
-    free(ptrC, testQueue);
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
 
-    assert(referenceA == dataA);
-    assert(referenceB == dataB);
-    assert(referenceC == dataC);
+  assert(referenceA == dataA);
+  assert(referenceB == dataB);
+  assert(referenceC == dataC);
 
-    return 0;
+  return 0;
 }

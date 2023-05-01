@@ -37,14 +37,18 @@ int main() {
     exp_ext::command_graph graph{testQueue.get_context(),
                                  testQueue.get_device()};
     buffer<T> bufferA{dataA.data(), range<1>{dataA.size()}};
+    bufferA.set_write_back(false);
     buffer<T> bufferB{dataB.data(), range<1>{dataB.size()}};
+    bufferB.set_write_back(false);
     buffer<T> bufferC{dataC.data(), range<1>{dataC.size()}};
+    bufferC.set_write_back(false);
 
     graph.begin_recording(testQueue);
 
     // Create a temporary output buffer to use between kernels.
     {
       buffer<T> bufferTemp{range<1>{dataA.size()}};
+      bufferTemp.set_write_back(false);
 
       // Vector add to temporary output buffer
       testQueue.submit([&](handler &cgh) {
@@ -73,9 +77,12 @@ int main() {
     }
     // Perform a wait on all graph submissions.
     testQueue.wait();
-  }
 
-  assert(referenceC == dataC);
+    host_accessor hostAccC(bufferC);
+    for (size_t i = 0; i < size; i++) {
+      assert(referenceC[i] == hostAccC[i]);
+    }
+  }
 
   return 0;
 }

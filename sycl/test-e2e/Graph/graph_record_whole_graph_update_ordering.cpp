@@ -104,45 +104,45 @@ int main() {
   // Execute several iterations of the graph for 1st set of buffers
   for (unsigned n = 0; n < iterations; n++) {
     testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
-    }
+  }
 
-    graphExec.update(graphB);
+  graphExec.update(graphB);
 
-    // Execute several iterations of the graph for 2nd set of buffers
-    for (unsigned n = 0; n < iterations; n++) {
-      testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
-    }
+  // Execute several iterations of the graph for 2nd set of buffers
+  for (unsigned n = 0; n < iterations; n++) {
+    testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
+  }
 
-    // Perform a wait on all graph submissions.
-    testQueue.wait_and_throw();
+  // Perform a wait on all graph submissions.
+  testQueue.wait_and_throw();
 
-    testQueue.copy(ptrA, dataA.data(), size);
-    testQueue.copy(ptrB, dataB.data(), size);
-    testQueue.copy(ptrC, dataC.data(), size);
-    testQueue.copy(ptrOut, hostTaskOutput.data(), size);
+  testQueue.copy(ptrA, dataA.data(), size);
+  testQueue.copy(ptrB, dataB.data(), size);
+  testQueue.copy(ptrC, dataC.data(), size);
+  testQueue.copy(ptrOut, hostTaskOutput.data(), size);
 
-    testQueue.copy(ptrA2, dataA.data(), size);
-    testQueue.copy(ptrB2, dataB.data(), size);
-    testQueue.copy(ptrC2, dataC.data(), size);
-    testQueue.wait_and_throw();
+  testQueue.copy(ptrA2, dataA.data(), size);
+  testQueue.copy(ptrB2, dataB.data(), size);
+  testQueue.copy(ptrC2, dataC.data(), size);
+  testQueue.wait_and_throw();
 
-    free(ptrA, testQueue);
-    free(ptrB, testQueue);
-    free(ptrC, testQueue);
-    free(ptrOut, testQueue);
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
+  free(ptrOut, testQueue);
 
-    free(ptrA2, testQueue);
-    free(ptrB2, testQueue);
-    free(ptrC2, testQueue);
+  free(ptrA2, testQueue);
+  free(ptrB2, testQueue);
+  free(ptrC2, testQueue);
 
-    assert(referenceA == dataA);
-    assert(referenceB == dataB);
-    assert(referenceC == dataC);
-    assert(referenceC == hostTaskOutput);
+  assert(referenceA == dataA);
+  assert(referenceB == dataB);
+  assert(referenceC == dataC);
+  assert(referenceC == hostTaskOutput);
 
-    assert(referenceA == dataA2);
-    assert(referenceB == dataB2);
-    assert(referenceC == dataC2);
+  assert(referenceA == dataA2);
+  assert(referenceB == dataB2);
+  assert(referenceC == dataC2);
 
-    return 0;
+  return 0;
 }

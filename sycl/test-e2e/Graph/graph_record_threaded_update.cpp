@@ -11,7 +11,6 @@
 
 #include <thread>
 
-
 int main() {
   queue testQueue;
 
@@ -76,15 +75,15 @@ int main() {
 
   for (unsigned i = 0; i < iterations; ++i) {
     threads.emplace_back(updateGraph);
-    }
+  }
 
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads[i].join();
-    }
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads[i].join();
+  }
 
-    free(ptrA, testQueue);
-    free(ptrB, testQueue);
-    free(ptrC, testQueue);
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
 
-    return 0;
+  return 0;
 }

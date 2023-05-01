@@ -80,18 +80,18 @@ int main() {
   // Execute several iterations of the graph
   for (unsigned n = 0; n < iterations; n++) {
     testQueue.submit([&](handler &cgh) { cgh.ext_oneapi_graph(graphExec); });
-    }
-    // Perform a wait on all graph submissions.
-    testQueue.wait_and_throw();
+  }
+  // Perform a wait on all graph submissions.
+  testQueue.wait_and_throw();
 
-    testQueue.copy(ptrC, dataC.data(), size);
-    testQueue.wait_and_throw();
+  testQueue.copy(ptrC, dataC.data(), size);
+  testQueue.wait_and_throw();
 
-    free(ptrA, testQueue);
-    free(ptrB, testQueue);
-    free(ptrC, testQueue);
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
 
-    assert(referenceC == dataC);
+  assert(referenceC == dataC);
 
-    return 0;
+  return 0;
 }

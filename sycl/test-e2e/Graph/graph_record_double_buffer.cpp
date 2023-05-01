@@ -83,34 +83,34 @@ int main() {
     });
     // Reset back to original buffers
     execGraph.update(graph);
-    }
+  }
 
-    testQueue.wait_and_throw();
+  testQueue.wait_and_throw();
 
-    testQueue.copy(ptrA, dataA.data(), size);
-    testQueue.copy(ptrB, dataB.data(), size);
-    testQueue.copy(ptrC, dataC.data(), size);
+  testQueue.copy(ptrA, dataA.data(), size);
+  testQueue.copy(ptrB, dataB.data(), size);
+  testQueue.copy(ptrC, dataC.data(), size);
 
-    testQueue.copy(ptrA2, dataA2.data(), size);
-    testQueue.copy(ptrB2, dataB2.data(), size);
-    testQueue.copy(ptrC2, dataC2.data(), size);
-    testQueue.wait_and_throw();
+  testQueue.copy(ptrA2, dataA2.data(), size);
+  testQueue.copy(ptrB2, dataB2.data(), size);
+  testQueue.copy(ptrC2, dataC2.data(), size);
+  testQueue.wait_and_throw();
 
-    free(ptrA, testQueue);
-    free(ptrB, testQueue);
-    free(ptrC, testQueue);
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
 
-    free(ptrA2, testQueue);
-    free(ptrB2, testQueue);
-    free(ptrC2, testQueue);
+  free(ptrA2, testQueue);
+  free(ptrB2, testQueue);
+  free(ptrC2, testQueue);
 
-    assert(referenceA == dataA);
-    assert(referenceB == dataB);
-    assert(referenceC == dataC);
+  assert(referenceA == dataA);
+  assert(referenceB == dataB);
+  assert(referenceC == dataC);
 
-    assert(referenceA2 == dataA2);
-    assert(referenceB2 == dataB2);
-    assert(referenceC2 == dataC2);
+  assert(referenceA2 == dataA2);
+  assert(referenceB2 == dataB2);
+  assert(referenceC2 == dataC2);
 
-    return 0;
+  return 0;
 }

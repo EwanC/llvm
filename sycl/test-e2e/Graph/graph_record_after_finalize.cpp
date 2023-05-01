@@ -74,28 +74,28 @@ int main() {
       cgh.depends_on(e);
       cgh.ext_oneapi_graph(graphExec);
     });
-    }
-    // Execute the extended graph.
-    for (unsigned n = 0; n < iterations; n++) {
-      e = testQueue.submit([&](handler &cgh) {
-        cgh.depends_on(e);
-        cgh.ext_oneapi_graph(graphExecAdditional);
-      });
-    }
-    // Perform a wait on all graph submissions.
-    testQueue.wait_and_throw();
+  }
+  // Execute the extended graph.
+  for (unsigned n = 0; n < iterations; n++) {
+    e = testQueue.submit([&](handler &cgh) {
+      cgh.depends_on(e);
+      cgh.ext_oneapi_graph(graphExecAdditional);
+    });
+  }
+  // Perform a wait on all graph submissions.
+  testQueue.wait_and_throw();
 
-    testQueue.copy(ptrC, dataC.data(), size);
-    testQueue.copy(ptrOut, dataOut.data(), size);
-    testQueue.wait_and_throw();
+  testQueue.copy(ptrC, dataC.data(), size);
+  testQueue.copy(ptrOut, dataOut.data(), size);
+  testQueue.wait_and_throw();
 
-    free(ptrA, testQueue);
-    free(ptrB, testQueue);
-    free(ptrC, testQueue);
-    free(ptrOut, testQueue);
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
+  free(ptrOut, testQueue);
 
-    assert(referenceC == dataC);
-    assert(referenceOut == dataOut);
+  assert(referenceC == dataC);
+  assert(referenceOut == dataOut);
 
-    return 0;
+  return 0;
 }

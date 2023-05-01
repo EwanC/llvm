@@ -111,25 +111,25 @@ int main() {
   for (unsigned n = 0; n < iterations; n++) {
     testQueue.submit(
         [&](handler &cgh) { cgh.ext_oneapi_graph(mainGraphExec); });
-    }
-    // Perform a wait on all graph submissions.
-    testQueue.wait_and_throw();
+  }
+  // Perform a wait on all graph submissions.
+  testQueue.wait_and_throw();
 
-    testQueue.copy(ptrA, dataA.data(), size);
-    testQueue.copy(ptrB, dataB.data(), size);
-    testQueue.copy(ptrC, dataC.data(), size);
-    testQueue.copy(ptrOut, dataOut.data(), size);
-    testQueue.wait_and_throw();
+  testQueue.copy(ptrA, dataA.data(), size);
+  testQueue.copy(ptrB, dataB.data(), size);
+  testQueue.copy(ptrC, dataC.data(), size);
+  testQueue.copy(ptrOut, dataOut.data(), size);
+  testQueue.wait_and_throw();
 
-    free(ptrA, testQueue);
-    free(ptrB, testQueue);
-    free(ptrC, testQueue);
-    free(ptrOut, testQueue);
+  free(ptrA, testQueue);
+  free(ptrB, testQueue);
+  free(ptrC, testQueue);
+  free(ptrOut, testQueue);
 
-    assert(referenceA == dataA);
-    assert(referenceB == dataB);
-    assert(referenceC == dataC);
-    assert(referenceOut == dataOut);
+  assert(referenceA == dataA);
+  assert(referenceB == dataB);
+  assert(referenceC == dataC);
+  assert(referenceOut == dataOut);
 
-    return 0;
+  return 0;
 }

@@ -28,11 +28,11 @@ int main() {
   threads.reserve(iterations);
   for (unsigned i = 0; i < iterations; ++i) {
     threads.emplace_back(recordGraph);
-    }
+  }
 
-    for (unsigned i = 0; i < iterations; ++i) {
-      threads[i].join();
-    }
+  for (unsigned i = 0; i < iterations; ++i) {
+    threads[i].join();
+  }
 
   return 0;
 }
